@@ -24,6 +24,7 @@ def test_generate_synthetic_dataset():
             min_width=5.0,
             max_width=12.0,
             min_gap=3,
+            show_progress=False,
         )
 
         manifests = generate_dataset(config)

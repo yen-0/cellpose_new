@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 import tifffile
 from scipy import ndimage as ndi
+from tqdm import tqdm
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class SyntheticDatasetConfig:
     noise_max: float = 0.06
     boundary_contrast_min: float = 0.14
     boundary_contrast_max: float = 0.32
+    show_progress: bool = True
 
     def __post_init__(self) -> None:
         if self.n_train < 0 or self.n_val < 0:
@@ -99,7 +101,14 @@ def _generate_split(config: SyntheticDatasetConfig, split: str, count: int,
     split_dir.mkdir(parents=True, exist_ok=True)
 
     manifest: list[dict[str, Any]] = []
-    for index in range(count):
+    progress = tqdm(
+        range(count),
+        desc=f"{split} samples",
+        unit="sample",
+        disable=not config.show_progress,
+        leave=True,
+    )
+    for index in progress:
         sample_seed = config.seed + split_offset + index
         rng = np.random.default_rng(sample_seed)
         sample_id = f"sample_{index:05d}"
@@ -118,6 +127,8 @@ def _generate_split(config: SyntheticDatasetConfig, split: str, count: int,
             "mask_path": str(mask_path.relative_to(config.out_dir)),
             **metadata,
         })
+        progress.set_postfix(objects=metadata["num_objects"],
+                             hard=int(metadata["hard_case"]))
 
     manifest_path = config.out_dir / f"{split}_manifest.jsonl"
     with open(manifest_path, "w", encoding="utf-8") as fh:
@@ -466,6 +477,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Minimum darkening applied along instance boundaries.")
     parser.add_argument("--boundary-contrast-max", default=0.32, type=float,
                         help="Maximum darkening applied along instance boundaries.")
+    parser.add_argument("--no-progress", action="store_true",
+                        help="Disable tqdm progress bars during synthetic generation.")
     return parser
 
 
@@ -501,6 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         noise_max=args.noise_max,
         boundary_contrast_min=args.boundary_contrast_min,
         boundary_contrast_max=args.boundary_contrast_max,
+        show_progress=not args.no_progress,
     )
     generate_dataset(config)
     return 0

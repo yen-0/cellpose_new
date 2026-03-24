@@ -6,7 +6,7 @@ from cellpose.transforms import normalize_img, random_rotate_and_resize
 from pathlib import Path
 import torch
 from torch import nn
-from tqdm import trange
+from tqdm import tqdm, trange
 
 import logging
 
@@ -431,7 +431,8 @@ def train_seg(net, train_data=None, train_labels=None, train_files=None,
 
     lavg, nsum = 0, 0
     train_losses, test_losses = np.zeros(n_epochs), np.zeros(n_epochs)
-    for iepoch in range(n_epochs):
+    epoch_iterator = trange(n_epochs, desc="epochs", unit="epoch")
+    for iepoch in epoch_iterator:
         np.random.seed(iepoch)
         if nimg != nimg_per_epoch:
             # choose random images for epoch with probability train_probs
@@ -443,7 +444,13 @@ def train_seg(net, train_data=None, train_labels=None, train_files=None,
         for param_group in optimizer.param_groups:
             param_group["lr"] = LR[iepoch] # set learning rate
         net.train()
-        for k in range(0, nimg_per_epoch, batch_size):
+        batch_iterator = tqdm(
+            range(0, nimg_per_epoch, batch_size),
+            desc=f"train {iepoch + 1}/{n_epochs}",
+            unit="batch",
+            leave=False,
+        )
+        for k in batch_iterator:
             kend = min(k + batch_size, nimg_per_epoch)
             inds = rperm[k:kend]
             imgs, lbls = _get_batch(inds, data=train_data, labels=train_labels,
@@ -477,7 +484,11 @@ def train_seg(net, train_data=None, train_labels=None, train_files=None,
             nsum += len(imgi)
             # per epoch training loss
             train_losses[iepoch] += train_loss
+            batch_iterator.set_postfix(train_loss=f"{loss.item():.4f}",
+                                       lr=f"{LR[iepoch]:.2e}")
         train_losses[iepoch] /= nimg_per_epoch
+        epoch_iterator.set_postfix(train_loss=f"{train_losses[iepoch]:.4f}",
+                                   lr=f"{LR[iepoch]:.2e}")
 
         if iepoch == 5 or iepoch % 10 == 0:
             lavgt = 0.
@@ -488,7 +499,13 @@ def train_seg(net, train_data=None, train_labels=None, train_files=None,
                                              size=(nimg_test_per_epoch,), p=test_probs)
                 else:
                     rperm = np.random.permutation(np.arange(0, nimg_test))
-                for ibatch in range(0, len(rperm), batch_size):
+                val_iterator = tqdm(
+                    range(0, len(rperm), batch_size),
+                    desc=f"val {iepoch + 1}/{n_epochs}",
+                    unit="batch",
+                    leave=False,
+                )
+                for ibatch in val_iterator:
                     with torch.no_grad():
                         net.eval()
                         inds = rperm[ibatch:ibatch + batch_size]
@@ -514,6 +531,7 @@ def train_seg(net, train_data=None, train_labels=None, train_files=None,
                         test_loss = loss.item()
                         test_loss *= len(imgi)
                         lavgt += test_loss
+                        val_iterator.set_postfix(test_loss=f"{loss.item():.4f}")
                 lavgt /= len(rperm)
                 test_losses[iepoch] = lavgt
             lavg /= nsum
